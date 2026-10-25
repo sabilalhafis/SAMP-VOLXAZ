@@ -1,0 +1,1169 @@
+
+script_name('VOLXAZ LIVE HANDLING V2')
+script_author('VOLXAZ')
+script_version('2.0')
+
+local imgui = require('mimgui')
+local ui = imgui.new
+
+-- =====================================
+-- VOLXAZ LIVE HANDLING V2
+-- ReSA - AL Loader
+-- SELURUH PETUNJUK BAHASA INDONESIA
+--
+-- Tidak mengubah handling.cfg asli.
+-- Tidak membuat file log tambahan.
+-- =====================================
+
+-- ReSA menyediakan ID widget melalui
+-- library bawaan bernama widgets.
+
+local widgetBerhasil, widget =
+    pcall(require, 'widgets')
+
+if not widgetBerhasil
+    or type(widget) ~= 'table' then
+
+    widget = {}
+end
+
+-- =====================================
+-- TAMPILAN DAN PENGATURAN
+-- =====================================
+
+local menu = ui.bool(true)
+
+local batasKmh = ui.float(180.0)
+local aksel = ui.float(100.0)
+local rem = ui.float(100.0)
+local jeda = ui.int(350)
+
+local pantau = false
+local bantuan = false
+
+-- Mulai dari PAD karena getPadState
+-- sudah pernah dipanggil tanpa FC.
+--
+-- 1 = OTOMATIS
+-- 2 = WIDGET
+-- 3 = PAD
+
+local sumber = 3
+
+local namaSumber = {
+    'OTOMATIS',
+    'WIDGET',
+    'PAD'
+}
+
+local pesan =
+    'SIAP. NAIK KENDARAAN LALU TES INPUT.'
+
+local modelTeks = '-'
+local idTeks = '-'
+local speedTeks = '-'
+
+local gasTeks = 'LEPAS'
+local remTeks = 'LEPAS'
+
+local rincian =
+    'BELUM ADA PEMBACAAN'
+
+local gas = false
+local remDitekan = false
+
+local gasDulu = false
+local remDulu = false
+
+local pernahGas = false
+local pernahRem = false
+
+local jumlahGas = 0
+local jumlahRem = 0
+local jumlahTulis = 0
+
+local idAktif = nil
+local modelAktif = nil
+
+local terakhirTulis = 0
+local terakhirBaca = 0
+
+local permintaan = nil
+
+-- =====================================
+-- CATATAN HANYA KE alloader.log
+-- =====================================
+
+local function catat(s)
+    print(
+        '[VOLXAZ V2] ' .. tostring(s)
+    )
+end
+
+local function info(s)
+    pesan = tostring(s)
+    catat(pesan)
+
+    if type(isSampAvailable) == 'function'
+        and isSampAvailable()
+        and type(sampAddChatMessage)
+            == 'function' then
+
+        sampAddChatMessage(
+            '[VOLXAZ] ' .. pesan,
+            0xAA55FF
+        )
+    end
+end
+
+local function valid(n)
+    return type(n) == 'number'
+        and n == n
+        and n ~= math.huge
+        and n ~= -math.huge
+end
+
+local function tahan(n, a, b)
+    return math.max(
+        a,
+        math.min(b, n)
+    )
+end
+
+local function waktu()
+    if type(getGameTimer) == 'function' then
+
+        local ok, hasil =
+            pcall(getGameTimer)
+
+        if ok and valid(hasil) then
+            return hasil
+        end
+    end
+
+    return math.floor(
+        os.clock() * 1000
+    )
+end
+
+-- =====================================
+-- BACA KENDARAAN
+-- MENGGUNAKAN METODE LOLOS TES V1.4
+-- =====================================
+
+local function kendaraan()
+
+    if not PLAYER_PED
+        or PLAYER_PED == 0 then
+
+        return nil,
+            'KARAKTER BELUM SIAP'
+    end
+
+    if type(isCharInAnyCar)
+        ~= 'function'
+        or type(getCarCharIsUsing)
+            ~= 'function'
+        or type(getCarModel)
+            ~= 'function'
+        or type(getCarSpeed)
+            ~= 'function' then
+
+        return nil,
+            'API KENDARAAN TIDAK TERSEDIA'
+    end
+
+    local ok, diDalam = pcall(
+        isCharInAnyCar,
+        PLAYER_PED
+    )
+
+    if not ok or diDalam ~= true then
+
+        return nil,
+            'SEDANG TIDAK NAIK KENDARAAN'
+    end
+
+    -- Jangan menggunakan
+    -- storeCarCharIsIn yang dulu -1.
+
+    local okId, id = pcall(
+        getCarCharIsUsing,
+        PLAYER_PED
+    )
+
+    if not okId
+        or not valid(id)
+        or id <= 0 then
+
+        return nil,
+            'ID KENDARAAN TIDAK VALID'
+    end
+
+    local okModel, model = pcall(
+        getCarModel,
+        id
+    )
+
+    if not okModel
+        or not valid(model)
+        or model < 400
+        or model > 611 then
+
+        return nil,
+            'MODEL KENDARAAN TIDAK VALID'
+    end
+
+    local okSpeed, speed = pcall(
+        getCarSpeed,
+        id
+    )
+
+    if not okSpeed
+        or not valid(speed)
+        or speed < 0
+        or speed > 220 then
+
+        return nil,
+            'KECEPATAN TIDAK VALID'
+    end
+
+    idTeks = tostring(id)
+    modelTeks = tostring(model)
+
+    speedTeks = string.format(
+        '%.2f',
+        speed
+    )
+
+    return {
+        id = id,
+        model = model,
+        speed = speed
+    }
+end
+
+-- =====================================
+-- JENIS KENDARAAN YANG BELUM DIDUKUNG
+-- =====================================
+
+local dikecualikan = {
+    [417]=true, [425]=true,
+    [430]=true, [435]=true,
+    [441]=true, [446]=true,
+    [447]=true, [449]=true,
+    [450]=true, [452]=true,
+    [453]=true, [454]=true,
+    [464]=true, [465]=true,
+    [469]=true, [473]=true,
+    [476]=true, [484]=true,
+    [487]=true, [501]=true,
+    [511]=true, [512]=true,
+    [513]=true, [519]=true,
+    [520]=true, [537]=true,
+    [538]=true, [539]=true,
+    [548]=true, [553]=true,
+    [563]=true, [564]=true,
+    [569]=true, [577]=true,
+    [592]=true, [593]=true,
+    [594]=true, [595]=true
+}
+
+-- =====================================
+-- PEMBACA WIDGET
+-- =====================================
+
+local function widgetTekan(id)
+
+    if type(id) ~= 'number' then
+        return false
+    end
+
+    if type(isWidgetPressed)
+        == 'function' then
+
+        local ok, hasil = pcall(
+            isWidgetPressed,
+            id
+        )
+
+        if ok then
+            return hasil == true
+                or (
+                    type(hasil) == 'number'
+                    and hasil ~= 0
+                )
+        end
+
+        return false
+    end
+
+    if type(isWidgetPressedEx)
+        == 'function' then
+
+        local ok, hasil = pcall(
+            isWidgetPressedEx,
+            id,
+            0
+        )
+
+        if ok then
+            return hasil == true
+                or (
+                    type(hasil) == 'number'
+                    and hasil ~= 0
+                )
+        end
+    end
+
+    return false
+end
+
+-- =====================================
+-- PEMBACA PAD
+-- =====================================
+
+local function padTekan(kunci)
+
+    if type(getPadState)
+        ~= 'function' then
+
+        return false
+    end
+
+    local ok, nilai = pcall(
+        getPadState,
+        0,
+        kunci
+    )
+
+    if not ok then
+        return false
+    end
+
+    if type(nilai) == 'boolean' then
+        return nilai
+    end
+
+    return type(nilai) == 'number'
+        and nilai > 10
+end
+
+-- =====================================
+-- DETEKSI GAS DAN REM LIVE
+--
+-- GAS DAN REM DIPANTAU TERPISAH.
+-- TIDAK PERLU ON/OFF UNTUK BERGANTI.
+-- =====================================
+
+local function bacaInput()
+
+    local wg, wr = false, false
+    local pg, pr = false, false
+
+    local hasil = {}
+
+    -- Pembacaan melalui widget.
+    if sumber ~= 3 then
+
+        wg = widgetTekan(
+            widget.WIDGET_ACCELERATE
+        )
+
+        wr = widgetTekan(
+            widget.WIDGET_BRAKE
+        )
+
+        hasil[#hasil + 1] =
+            'WIDGET G=' ..
+            (wg and '1' or '0') ..
+            ' R=' ..
+            (wr and '1' or '0')
+    end
+
+    -- Pembacaan melalui tombol PAD.
+    if sumber ~= 2 then
+
+        pg = padTekan(16)
+        pr = padTekan(14)
+
+        hasil[#hasil + 1] =
+            'PAD G=' ..
+            (pg and '1' or '0') ..
+            ' R=' ..
+            (pr and '1' or '0')
+    end
+
+    -- Perbarui kedua status setiap siklus.
+    gas = wg or pg
+    remDitekan = wr or pr
+
+    gasTeks = gas
+        and 'DITEKAN'
+        or 'LEPAS'
+
+    remTeks = remDitekan
+        and 'DITEKAN'
+        or 'LEPAS'
+
+    rincian = table.concat(
+        hasil,
+        ' | '
+    )
+
+    -- Catat gas saat baru ditekan.
+    if gas and not gasDulu then
+
+        jumlahGas = jumlahGas + 1
+        pernahGas = true
+
+        catat(
+            'GAS TERDETEKSI ' ..
+            jumlahGas ..
+            'x | ' .. rincian
+        )
+    end
+
+    -- Catat rem secara independen.
+    if remDitekan and not remDulu then
+
+        jumlahRem = jumlahRem + 1
+        pernahRem = true
+
+        catat(
+            'REM TERDETEKSI ' ..
+            jumlahRem ..
+            'x | ' .. rincian
+        )
+    end
+
+    gasDulu = gas
+    remDulu = remDitekan
+end
+
+-- =====================================
+-- MATIKAN BANTUAN
+-- =====================================
+
+local function matikan(teks)
+
+    bantuan = false
+
+    idAktif = nil
+    modelAktif = nil
+
+    if teks then
+        info(teks)
+    end
+end
+
+-- =====================================
+-- RESET NORMAL
+-- =====================================
+
+local function reset()
+
+    matikan(nil)
+
+    batasKmh[0] = 180
+    aksel[0] = 100
+    rem[0] = 100
+    jeda[0] = 350
+
+    info(
+        'RESET NORMAL. ' ..
+        'BANTUAN DIMATIKAN.'
+    )
+end
+
+-- =====================================
+-- PROFIL HANDLING
+-- =====================================
+
+local function preset(tingkat)
+
+    matikan(nil)
+
+    if tingkat == 1 then
+
+        -- SANTAI
+        batasKmh[0] = 160
+        aksel[0] = 130
+        rem[0] = 120
+        jeda[0] = 450
+
+        info(
+            'PROFIL SANTAI DIPILIH. ' ..
+            'TEKAN TERAPKAN.'
+        )
+
+    elseif tingkat == 2 then
+
+        -- KENCANG
+        batasKmh[0] = 240
+        aksel[0] = 230
+        rem[0] = 190
+        jeda[0] = 300
+
+        info(
+            'PROFIL KENCANG DIPILIH. ' ..
+            'TEKAN TERAPKAN.'
+        )
+
+    else
+
+        -- BRUTAL
+        batasKmh[0] = 420
+        aksel[0] = 650
+        rem[0] = 450
+        jeda[0] = 160
+
+        info(
+            'PROFIL BRUTAL DIPILIH. ' ..
+            'TEKAN TERAPKAN.'
+        )
+    end
+end
+
+-- =====================================
+-- TERAPKAN PENGATURAN
+-- =====================================
+
+local function terapkan()
+
+    local data, masalah = kendaraan()
+
+    if not data then
+        info(masalah)
+        return
+    end
+
+    if dikecualikan[data.model] then
+
+        info(
+            'JENIS KENDARAAN ' ..
+            'BELUM DIDUKUNG'
+        )
+
+        return
+    end
+
+    if type(setCarForwardSpeed)
+        ~= 'function' then
+
+        info(
+            'API PENGUBAH LAJU TIDAK ADA'
+        )
+
+        return
+    end
+
+    if not pantau then
+
+        info(
+            'AKTIFKAN PEMANTAUAN INPUT DULU'
+        )
+
+        return
+    end
+
+    -- Pastikan gas dan rem sudah
+    -- berhasil terbaca bergantian.
+    if not pernahGas or not pernahRem then
+
+        info(
+            'UJI GAS DAN REM ' ..
+            'BERGANTIAN DULU'
+        )
+
+        return
+    end
+
+    -- Kedua slider normal:
+    -- tidak ada perubahan kecepatan.
+    if aksel[0] <= 100
+        and rem[0] <= 100 then
+
+        matikan(
+            '100% NORMAL. ' ..
+            'TIDAK ADA PERUBAHAN.'
+        )
+
+        return
+    end
+
+    batasKmh[0] = tahan(
+        batasKmh[0],
+        50,
+        500
+    )
+
+    aksel[0] = tahan(
+        aksel[0],
+        100,
+        1000
+    )
+
+    rem[0] = tahan(
+        rem[0],
+        100,
+        600
+    )
+
+    jeda[0] = tahan(
+        jeda[0],
+        130,
+        700
+    )
+
+    idAktif = data.id
+    modelAktif = data.model
+
+    terakhirTulis = waktu()
+    jumlahTulis = 0
+
+    bantuan = true
+
+    info(
+        'BANTUAN AKTIF. ' ..
+        'GAS DAN REM DIPANTAU LIVE.'
+    )
+end
+
+-- =====================================
+-- PERUBAHAN LAJU REAL-TIME
+-- =====================================
+
+local function perbaruiBantuan()
+
+    if not bantuan then
+        return
+    end
+
+    local data, masalah = kendaraan()
+
+    if not data then
+
+        matikan(
+            'BANTUAN MATI: ' ..
+            masalah
+        )
+
+        return
+    end
+
+    -- Kalau kendaraan berubah,
+    -- bantuan kendaraan lama dimatikan.
+    if data.id ~= idAktif
+        or data.model ~= modelAktif then
+
+        matikan(
+            'KENDARAAN BERGANTI. ' ..
+            'BANTUAN DIMATIKAN.'
+        )
+
+        return
+    end
+
+    local sekarang = waktu()
+
+    if sekarang - terakhirTulis
+        < jeda[0] then
+
+        return
+    end
+
+    terakhirTulis = sekarang
+
+    local laju = data.speed
+
+    -- Biarkan kendaraan mulai bergerak
+    -- memakai mesin bawaan.
+    if laju < 1.7 then
+        return
+    end
+
+    -- Kalau gas dan rem sama-sama
+    -- aktif atau sama-sama lepas,
+    -- jangan melakukan perubahan.
+    if gas == remDitekan then
+        return
+    end
+
+    local tujuan = nil
+    local jenis = nil
+
+    -- =================================
+    -- AKSELERASI TAMBAHAN
+    -- =================================
+
+    if gas and aksel[0] > 100 then
+
+        -- Batas untuk dorongan bantuan.
+        -- BUKAN pembatas fisika bawaan.
+        local plafon =
+            batasKmh[0] / 3.6
+
+        -- Kalau sudah melewati plafon,
+        -- cukup hentikan bantuan.
+        -- Jangan memperlambat kendaraan.
+        if laju >= plafon then
+            return
+        end
+
+        local kuat =
+            (aksel[0] - 100) / 900
+
+        local dorong =
+            0.16 + 2.34 * kuat
+
+        tujuan = math.min(
+            plafon,
+            laju + dorong
+        )
+
+        jenis = 'AKSELERASI'
+
+    -- =================================
+    -- KEKUATAN REM TAMBAHAN
+    -- =================================
+
+    elseif remDitekan
+        and rem[0] > 100 then
+
+        local kuat =
+            (rem[0] - 100) / 500
+
+        local pengereman =
+            0.16 + 2.34 * kuat
+
+        tujuan = math.max(
+            0,
+            laju - pengereman
+        )
+
+        jenis = 'REM'
+    end
+
+    -- =================================
+    -- JANGAN MENULIS KECEPATAN
+    -- KALAU TIDAK ADA PERUBAHAN
+    -- =================================
+
+    if not tujuan
+        or math.abs(tujuan - laju)
+            < 0.02 then
+
+        return
+    end
+
+    -- =================================
+    -- CATAT PEMANGGILAN NATIVE
+    -- =================================
+
+    if jumlahTulis == 0 then
+
+        catat(
+            'SEBELUM PERINTAH ' ..
+            'KECEPATAN PERTAMA: ' ..
+            jenis
+        )
+    end
+
+    -- Fungsi ini sudah berhasil
+    -- dipanggil pada tes ReSA V1.4.
+    local berhasil, gagal = pcall(
+        setCarForwardSpeed,
+        data.id,
+        tujuan
+    )
+
+    if not berhasil then
+
+        matikan(
+            'GAGAL MENGUBAH LAJU: ' ..
+            tostring(gagal)
+        )
+
+        return
+    end
+
+    jumlahTulis = jumlahTulis + 1
+
+    -- Supaya alloader.log tidak penuh,
+    -- catat perubahan pertama dan
+    -- setiap 15 perubahan berikutnya.
+    if jumlahTulis == 1
+        or jumlahTulis % 15 == 0 then
+
+        catat(string.format(
+            '%s #%d: %.2f -> %.2f',
+            jenis,
+            jumlahTulis,
+            laju,
+            tujuan
+        ))
+    end
+end
+
+-- =====================================
+-- GUI VOLXAZ
+-- =====================================
+
+imgui.OnFrame(
+
+    function()
+        return menu[0]
+    end,
+
+    function()
+
+        imgui.SetNextWindowSize(
+            imgui.ImVec2(425, 540),
+            imgui.Cond.FirstUseEver
+        )
+
+        imgui.Begin(
+            'VOLXAZ LIVE HANDLING V2',
+            menu
+        )
+
+        imgui.Text(
+            'ReSA - PENGATUR LAJU LANGSUNG'
+        )
+
+        imgui.Separator()
+
+        imgui.Text(
+            'MODEL: ' .. modelTeks ..
+            ' | ID: ' .. idTeks
+        )
+
+        imgui.Text(
+            'LAJU API: ' .. speedTeks
+        )
+
+        imgui.Text(
+            'GAS: ' .. gasTeks ..
+            ' | REM: ' .. remTeks
+        )
+
+        imgui.Text(
+            'GAS TERBACA: ' .. jumlahGas ..
+            ' | REM TERBACA: ' .. jumlahRem
+        )
+
+        imgui.TextWrapped(
+            'PEMBACAAN: ' .. rincian
+        )
+
+        imgui.Separator()
+
+        -- Pilihan sumber pendeteksian.
+        if imgui.Button(
+            'SUMBER: ' .. namaSumber[sumber],
+            imgui.ImVec2(385, 32)
+        ) then
+
+            permintaan = 'sumber'
+        end
+
+        -- Pemantauan tidak ada batas waktu.
+        if imgui.Button(
+            pantau
+                and 'MATIKAN PANTAU INPUT'
+                or 'AKTIFKAN PANTAU INPUT',
+
+            imgui.ImVec2(385, 32)
+        ) then
+
+            permintaan = 'pantau'
+        end
+
+        imgui.Separator()
+
+        -- =================================
+        -- BATAS DORONGAN
+        -- =================================
+
+        imgui.Text(
+            'BATAS DORONGAN (KM/JAM, PERKIRAAN)'
+        )
+
+        imgui.SliderFloat(
+            '##speed',
+            batasKmh,
+            50,
+            500,
+            '%.0f'
+        )
+
+        -- =================================
+        -- AKSELERASI
+        -- =================================
+
+        imgui.Text(
+            'AKSELERASI TAMBAHAN (100% = NORMAL)'
+        )
+
+        imgui.SliderFloat(
+            '##accel',
+            aksel,
+            100,
+            1000,
+            '%.0f%%'
+        )
+
+        -- =================================
+        -- REM
+        -- =================================
+
+        imgui.Text(
+            'KEKUATAN REM (100% = NORMAL)'
+        )
+
+        imgui.SliderFloat(
+            '##brake',
+            rem,
+            100,
+            600,
+            '%.0f%%'
+        )
+
+        -- =================================
+        -- JEDA PERUBAHAN
+        -- =================================
+
+        imgui.Text(
+            'JEDA PERUBAHAN (MILIDETIK)'
+        )
+
+        imgui.SliderInt(
+            '##interval',
+            jeda,
+            130,
+            700,
+            '%d'
+        )
+
+        imgui.Separator()
+
+        -- =================================
+        -- PILIH PROFIL
+        -- =================================
+
+        if imgui.Button(
+            'SANTAI',
+            imgui.ImVec2(119, 32)
+        ) then
+
+            permintaan = 'santai'
+        end
+
+        imgui.SameLine()
+
+        if imgui.Button(
+            'KENCANG',
+            imgui.ImVec2(119, 32)
+        ) then
+
+            permintaan = 'kencang'
+        end
+
+        imgui.SameLine()
+
+        if imgui.Button(
+            'BRUTAL',
+            imgui.ImVec2(119, 32)
+        ) then
+
+            permintaan = 'brutal'
+        end
+
+        if imgui.Button(
+            'TERAPKAN PENGATURAN',
+            imgui.ImVec2(385, 37)
+        ) then
+
+            permintaan = 'terapkan'
+        end
+
+        if imgui.Button(
+            'RESET NORMAL / MATIKAN',
+            imgui.ImVec2(385, 37)
+        ) then
+
+            permintaan = 'reset'
+        end
+
+        imgui.Separator()
+
+        imgui.Text(
+            'PANTAU: ' ..
+            (pantau and 'AKTIF' or 'MATI') ..
+            ' | BANTUAN: ' ..
+            (bantuan and 'AKTIF' or 'MATI')
+        )
+
+        imgui.Text(
+            'JUMLAH PERUBAHAN: ' ..
+            jumlahTulis
+        )
+
+        imgui.TextWrapped(
+            'KETERANGAN: ' .. pesan
+        )
+
+        imgui.End()
+    end
+)
+
+-- =====================================
+-- SISTEM UTAMA
+-- =====================================
+
+function main()
+
+    while not isSampAvailable() do
+        wait(300)
+    end
+
+    info(
+        'V2 SIAP. LOG HANYA KE alloader.log.'
+    )
+
+    -- Perintah chat untuk membuka
+    -- atau menutup menu.
+    if type(sampRegisterChatCommand)
+        == 'function' then
+
+        sampRegisterChatCommand(
+            'vhandling',
+            function()
+                menu[0] = not menu[0]
+            end
+        )
+    end
+
+    while true do
+
+        wait(60)
+
+        local perintah = permintaan
+        permintaan = nil
+
+        -- =================================
+        -- PROSES TOMBOL GUI
+        -- =================================
+
+        if perintah == 'reset' then
+
+            reset()
+
+        elseif perintah == 'pantau' then
+
+            pantau = not pantau
+
+            if not pantau then
+
+                matikan(nil)
+
+                gas = false
+                remDitekan = false
+
+                gasDulu = false
+                remDulu = false
+            end
+
+            info(
+                pantau
+                and (
+                    'PANTAU INPUT AKTIF. ' ..
+                    'GAS DAN REM BOLEH BERGANTIAN.'
+                )
+                or (
+                    'PANTAU MATI. ' ..
+                    'BANTUAN JUGA DIMATIKAN.'
+                )
+            )
+
+        elseif perintah == 'sumber' then
+
+            matikan(nil)
+
+            sumber =
+                sumber % #namaSumber + 1
+
+            gasDulu = false
+            remDulu = false
+
+            pernahGas = false
+            pernahRem = false
+
+            info(
+                'SUMBER INPUT: ' ..
+                namaSumber[sumber] ..
+                '. UJI GAS DAN REM LAGI.'
+            )
+
+        elseif perintah == 'santai' then
+
+            preset(1)
+
+        elseif perintah == 'kencang' then
+
+            preset(2)
+
+        elseif perintah == 'brutal' then
+
+            preset(3)
+
+        elseif perintah == 'terapkan' then
+
+            terapkan()
+        end
+
+        -- =================================
+        -- PEMANTAUAN INPUT TERUS-MENERUS
+        -- =================================
+
+        if pantau then
+
+            local t = waktu()
+
+            if t - terakhirBaca >= 60 then
+
+                terakhirBaca = t
+
+                local data = kendaraan()
+
+                if not data then
+
+                    if bantuan then
+                        matikan(
+                            'KELUAR KENDARAAN: ' ..
+                            'BANTUAN DIMATIKAN'
+                        )
+                    end
+
+                    gas = false
+                    remDitekan = false
+
+                    gasDulu = false
+                    remDulu = false
+
+                else
+                    bacaInput()
+                end
+            end
+        end
+
+        -- =================================
+        -- BANTUAN KECEPATAN REAL-TIME
+        -- =================================
+
+        if bantuan then
+            perbaruiBantuan()
+        end
+    end
+end
